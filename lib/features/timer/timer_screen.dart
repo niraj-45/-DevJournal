@@ -68,6 +68,7 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
 
         return Scaffold(
           backgroundColor: AppColors.darkBg,
+          resizeToAvoidBottomInset: false,
           body: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -372,8 +373,9 @@ class _LiveTimerPage extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
         return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: EdgeInsets.only(left: 24, right: 24, bottom: bottomInset),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: constraints.maxHeight),
             child: Column(
@@ -637,8 +639,9 @@ class _ManualEntryPageState extends ConsumerState<_ManualEntryPage> {
     final subtaskSuggestions =
         ref.watch(subtaskSuggestionsProvider(widget.workspaceId)).valueOrNull ?? [];
 
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.only(left: 24, right: 24, bottom: bottomInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
