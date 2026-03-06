@@ -169,3 +169,47 @@ Future<void> updateSession({
   final date = ref.read(selectedDateProvider);
   ref.invalidate(sessionsForDateProvider(dateOnly(date)));
 }
+
+/// Distinct ticket IDs the user has used in a workspace — for autocomplete.
+final ticketSuggestionsProvider =
+    FutureProvider.family<List<String>, String>((ref, workspaceId) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) return [];
+  final rows = await Supabase.instance.client
+      .from('sessions')
+      .select('ticket_id')
+      .eq('user_id', user.id)
+      .eq('workspace_id', workspaceId)
+      .not('ticket_id', 'is', null)
+      .order('started_at', ascending: false)
+      .limit(300);
+  final seen = <String>{};
+  final result = <String>[];
+  for (final row in (rows as List)) {
+    final t = (row['ticket_id'] as String?)?.trim();
+    if (t != null && t.isNotEmpty && seen.add(t)) result.add(t);
+  }
+  return result;
+});
+
+/// Distinct subtasks/notes the user has logged in a workspace — for autocomplete.
+final subtaskSuggestionsProvider =
+    FutureProvider.family<List<String>, String>((ref, workspaceId) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) return [];
+  final rows = await Supabase.instance.client
+      .from('sessions')
+      .select('notes')
+      .eq('user_id', user.id)
+      .eq('workspace_id', workspaceId)
+      .not('notes', 'is', null)
+      .order('started_at', ascending: false)
+      .limit(300);
+  final seen = <String>{};
+  final result = <String>[];
+  for (final row in (rows as List)) {
+    final n = (row['notes'] as String?)?.trim();
+    if (n != null && n.isNotEmpty && seen.add(n)) result.add(n);
+  }
+  return result;
+});

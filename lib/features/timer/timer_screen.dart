@@ -29,7 +29,8 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final timerState = ref.watch(timerProvider);
+    // Only watch isRunning — avoids rebuilding the entire scaffold every second
+    final isRunning = ref.watch(timerProvider.select((s) => s.isRunning));
     final workspaceAsync = ref.watch(workspaceProvider);
 
     return workspaceAsync.when(
@@ -183,7 +184,6 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: _WorkHoursBar(
-                    timerElapsedSeconds: timerState.isRunning ? timerState.elapsedSeconds : 0,
                     onTap: () => _showWorkHoursSettings(context, ref),
                   ),
                 ),
@@ -207,7 +207,7 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
                   child: PageView(
                     controller: _pageController,
                     // Block swiping while timer is running to prevent accidental page changes
-                    physics: timerState.isRunning
+                    physics: isRunning
                         ? const NeverScrollableScrollPhysics()
                         : const BouncingScrollPhysics(),
                     onPageChanged: (i) => setState(() => _currentPage = i),
@@ -360,7 +360,15 @@ class _LiveTimerPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final timerState = ref.watch(timerProvider);
+    // Only watch what changes infrequently — isRunning, ticket/subtask text
+    final isRunning = ref.watch(timerProvider.select((s) => s.isRunning));
+    final ticketInput = ref.watch(timerProvider.select((s) => s.ticketInput));
+    final subtaskInput = ref.watch(timerProvider.select((s) => s.subtaskInput));
+    final _wid = workspace['id'] as String;
+    final ticketSuggestions =
+        ref.watch(ticketSuggestionsProvider(_wid)).valueOrNull ?? [];
+    final subtaskSuggestions =
+        ref.watch(subtaskSuggestionsProvider(_wid)).valueOrNull ?? [];
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -368,19 +376,21 @@ class _LiveTimerPage extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: IntrinsicHeight(
-              child: Column(
-                children: [
-                  const Spacer(flex: 1),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(height: constraints.maxHeight * 0.06),
 
-                  // Timer display
-                  Center(
+                // Timer display — isolated Consumer so only this rebuilds per-second
+                Consumer(builder: (context, ref, _) {
+                  final formattedTime = ref.watch(timerProvider.select((s) => s.formattedTime));
+                  return Center(
                     child: Column(
                       children: [
                         Text(
-                          timerState.formattedTime,
+                          formattedTime,
                           style: TextStyle(
-                            color: timerState.isRunning
+                            color: isRunning
                                 ? AppColors.mediumBlue
                                 : AppColors.textSecondary,
                             fontSize: 72,
@@ -391,7 +401,7 @@ class _LiveTimerPage extends ConsumerWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          timerState.isRunning ? 'Session running' : 'Ready to track',
+                          isRunning ? 'Session running' : 'Ready to track',
                           style: const TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 15,
@@ -399,132 +409,123 @@ class _LiveTimerPage extends ConsumerWidget {
                         ),
                       ],
                     ),
+                  );
+                }),
+
+                const SizedBox(height: 20),
+
+                // Ticket + Subtask input
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.cardBg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isRunning
+                          ? AppColors.mediumBlue.withOpacity(0.4)
+                          : AppColors.surfaceBg,
+                    ),
                   ),
+                  child: Column(
+                    children: [
+                      _SuggestionField(
+                        suggestions: ticketSuggestions,
+                        hintText: 'Ticket ID  (e.g. ENG-42)',
+                        prefixIcon: Icons.tag_rounded,
+                        enabled: !isRunning,
+                        initialValue: ticketInput ?? '',
+                        onChanged: (val) =>
+                            ref.read(timerProvider.notifier).setTicket(val),
+                      ),
+                      const Divider(height: 1, color: AppColors.surfaceBg),
+                      _SuggestionField(
+                        suggestions: subtaskSuggestions,
+                        hintText: 'Subtask / description',
+                        prefixIcon: Icons.subject_rounded,
+                        enabled: !isRunning,
+                        initialValue: subtaskInput ?? '',
+                        onChanged: (val) =>
+                            ref.read(timerProvider.notifier).setSubtask(val),
+                      ),
+                    ],
+                  ),
+                ),
 
-                  const SizedBox(height: 20),
+                // Out-of-work-hours warning
+                _OutOfHoursChip(),
 
-                  // Ticket + Subtask input
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.cardBg,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: timerState.isRunning
-                            ? AppColors.mediumBlue.withOpacity(0.4)
-                            : AppColors.surfaceBg,
+                SizedBox(height: constraints.maxHeight * 0.04),
+
+                // Start / Stop button — isolated Consumer
+                Consumer(builder: (context, ref, _) {
+                  final ts = ref.watch(timerProvider);
+                  final hasTicket = ts.ticketInput?.trim().isNotEmpty == true;
+                  final hasSubtask = ts.subtaskInput?.trim().isNotEmpty == true;
+                  final canStart = ts.isRunning || (hasTicket && hasSubtask);
+                  final activeColor = ts.isRunning
+                      ? AppColors.error
+                      : AppColors.mediumBlue;
+                  const dimColor = AppColors.textSecondary;
+                  final btnColor = canStart ? activeColor : dimColor;
+
+                  return GestureDetector(
+                    onTap: () async {
+                      final notifier = ref.read(timerProvider.notifier);
+                      if (ts.isRunning) {
+                        final sessionId = await notifier.stopTimer();
+                        if (sessionId != null && context.mounted) {
+                          ref.invalidate(todaySessionsProvider);
+                          showModalBottomSheet(
+                            context: context,
+                            backgroundColor: AppColors.cardBg,
+                            isScrollControlled: true,
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                            ),
+                            builder: (_) => MoodSheet(sessionId: sessionId),
+                          );
+                        }
+                      } else {
+                        if (!hasTicket || !hasSubtask) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                !hasTicket
+                                    ? 'Enter a Ticket ID before starting'
+                                    : 'Enter a subtask / description before starting',
+                              ),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          return;
+                        }
+                        await notifier.startTimer(workspace['id']);
+                      }
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: btnColor.withOpacity(0.15),
+                        border: Border.all(
+                          color: btnColor,
+                          width: 2,
+                        ),
+                      ),
+                      child: Icon(
+                        ts.isRunning
+                            ? Icons.stop_rounded
+                            : Icons.play_arrow_rounded,
+                        color: btnColor,
+                        size: 52,
                       ),
                     ),
-                    child: Column(
-                      children: [
-                        TextField(
-                          onChanged: (val) => ref.read(timerProvider.notifier).setTicket(val),
-                          enabled: !timerState.isRunning,
-                          style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
-                          decoration: const InputDecoration(
-                            hintText: 'Ticket ID  (e.g. ENG-42)',
-                            hintStyle: TextStyle(color: AppColors.textSecondary),
-                            prefixIcon: Icon(Icons.tag_rounded, color: AppColors.textSecondary, size: 20),
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                          ),
-                        ),
-                        const Divider(height: 1, color: AppColors.surfaceBg),
-                        TextField(
-                          onChanged: (val) => ref.read(timerProvider.notifier).setSubtask(val),
-                          enabled: !timerState.isRunning,
-                          style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
-                          decoration: const InputDecoration(
-                            hintText: 'Subtask / description',
-                            hintStyle: TextStyle(color: AppColors.textSecondary),
-                            prefixIcon: Icon(Icons.subject_rounded, color: AppColors.textSecondary, size: 20),
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  );
+                }),
 
-                  // Out-of-work-hours warning
-                  _OutOfHoursChip(),
-
-                  const Spacer(flex: 1),
-
-                  // Start / Stop button
-                  Center(
-                    child: Builder(builder: (innerCtx) {
-                      final hasTicket =
-                          timerState.ticketInput?.trim().isNotEmpty == true;
-                      final hasSubtask =
-                          timerState.subtaskInput?.trim().isNotEmpty == true;
-                      final canStart = timerState.isRunning || (hasTicket && hasSubtask);
-                      final activeColor = timerState.isRunning
-                          ? AppColors.error
-                          : AppColors.mediumBlue;
-                      final dimColor = AppColors.textSecondary;
-                      final btnColor = canStart ? activeColor : dimColor;
-
-                      return GestureDetector(
-                        onTap: () async {
-                          final notifier = ref.read(timerProvider.notifier);
-                          if (timerState.isRunning) {
-                            final sessionId = await notifier.stopTimer();
-                            if (sessionId != null && innerCtx.mounted) {
-                              ref.invalidate(todaySessionsProvider);
-                              showModalBottomSheet(
-                                context: innerCtx,
-                                backgroundColor: AppColors.cardBg,
-                                isScrollControlled: true,
-                                shape: const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                                ),
-                                builder: (_) => MoodSheet(sessionId: sessionId),
-                              );
-                            }
-                          } else {
-                            if (!hasTicket || !hasSubtask) {
-                              ScaffoldMessenger.of(innerCtx).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    !hasTicket
-                                        ? 'Enter a Ticket ID before starting'
-                                        : 'Enter a subtask / description before starting',
-                                  ),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                              return;
-                            }
-                            await notifier.startTimer(workspace['id']);
-                          }
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: btnColor.withOpacity(0.15),
-                            border: Border.all(
-                              color: btnColor,
-                              width: 2,
-                            ),
-                          ),
-                          child: Icon(
-                            timerState.isRunning
-                                ? Icons.stop_rounded
-                                : Icons.play_arrow_rounded,
-                            color: btnColor,
-                            size: 52,
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-
-                  const Spacer(flex: 2),
-                ],
-              ),
+                SizedBox(height: constraints.maxHeight * 0.10),
+              ],
             ),
           ),
         );
@@ -543,16 +544,15 @@ class _ManualEntryPage extends ConsumerStatefulWidget {
 }
 
 class _ManualEntryPageState extends ConsumerState<_ManualEntryPage> {
-  final _ticketCtrl = TextEditingController();
-  final _subtaskCtrl = TextEditingController();
+  String _ticketValue = '';
+  String _subtaskValue = '';
+  int _resetKey = 0;
   TimeOfDay _startTime = TimeOfDay.now();
   TimeOfDay _endTime = TimeOfDay.now();
   bool _saving = false;
 
   @override
   void dispose() {
-    _ticketCtrl.dispose();
-    _subtaskCtrl.dispose();
     super.dispose();
   }
 
@@ -569,8 +569,8 @@ class _ManualEntryPageState extends ConsumerState<_ManualEntryPage> {
   }
 
   Future<void> _submit() async {
-    final ticket = _ticketCtrl.text.trim();
-    final subtask = _subtaskCtrl.text.trim();
+    final ticket = _ticketValue.trim();
+    final subtask = _subtaskValue.trim();
     if (ticket.isEmpty || subtask.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -599,8 +599,11 @@ class _ManualEntryPageState extends ConsumerState<_ManualEntryPage> {
         ref: ref,
       );
       if (mounted) {
-        _ticketCtrl.clear();
-        _subtaskCtrl.clear();
+        setState(() {
+          _ticketValue = '';
+          _subtaskValue = '';
+          _resetKey++;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Session created'),
@@ -629,6 +632,10 @@ class _ManualEntryPageState extends ConsumerState<_ManualEntryPage> {
     var endDt = _todayAt(_endTime);
     if (!endDt.isAfter(startDt)) endDt = endDt.add(const Duration(days: 1));
     final durationMins = endDt.difference(startDt).inMinutes;
+    final ticketSuggestions =
+        ref.watch(ticketSuggestionsProvider(widget.workspaceId)).valueOrNull ?? [];
+    final subtaskSuggestions =
+        ref.watch(subtaskSuggestionsProvider(widget.workspaceId)).valueOrNull ?? [];
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -686,7 +693,7 @@ class _ManualEntryPageState extends ConsumerState<_ManualEntryPage> {
 
           const SizedBox(height: 20),
 
-          // Ticket & subtask
+          // Ticket & subtask autocomplete
           Container(
             decoration: BoxDecoration(
               color: AppColors.cardBg,
@@ -695,28 +702,24 @@ class _ManualEntryPageState extends ConsumerState<_ManualEntryPage> {
             ),
             child: Column(
               children: [
-                TextField(
-                  controller: _ticketCtrl,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
-                  decoration: const InputDecoration(
-                    hintText: 'Ticket ID  (e.g. ENG-42)',
-                    hintStyle: TextStyle(color: AppColors.textSecondary),
-                    prefixIcon: Icon(Icons.tag_rounded, color: AppColors.textSecondary, size: 20),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  ),
+                _SuggestionField(
+                  key: ValueKey('manual-ticket-$_resetKey'),
+                  suggestions: ticketSuggestions,
+                  hintText: 'Ticket ID  (e.g. ENG-42)',
+                  prefixIcon: Icons.tag_rounded,
+                  enabled: true,
+                  initialValue: _ticketValue,
+                  onChanged: (val) => setState(() => _ticketValue = val),
                 ),
                 const Divider(height: 1, color: AppColors.surfaceBg),
-                TextField(
-                  controller: _subtaskCtrl,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
-                  decoration: const InputDecoration(
-                    hintText: 'Subtask / description',
-                    hintStyle: TextStyle(color: AppColors.textSecondary),
-                    prefixIcon: Icon(Icons.subject_rounded, color: AppColors.textSecondary, size: 20),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  ),
+                _SuggestionField(
+                  key: ValueKey('manual-subtask-$_resetKey'),
+                  suggestions: subtaskSuggestions,
+                  hintText: 'Subtask / description',
+                  prefixIcon: Icons.subject_rounded,
+                  enabled: true,
+                  initialValue: _subtaskValue,
+                  onChanged: (val) => setState(() => _subtaskValue = val),
                 ),
               ],
             ),
@@ -945,14 +948,17 @@ class _WorkspaceSwitcherSheetState
 
 // ── Work Hours Progress Bar ───────────────────────────────────────────────────
 class _WorkHoursBar extends ConsumerWidget {
-  final int timerElapsedSeconds;
   final VoidCallback onTap;
-  const _WorkHoursBar({required this.timerElapsedSeconds, required this.onTap});
+  const _WorkHoursBar({required this.onTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hours = ref.watch(workHoursProvider);
     final sessionsAsync = ref.watch(todaySessionsProvider);
+    // Watch only the running elapsed seconds — this Consumer tree is small
+    // so per-second rebuilds here are cheap.
+    final timerElapsedSeconds = ref.watch(
+        timerProvider.select((s) => s.isRunning ? s.elapsedSeconds : 0));
 
     final totalWorkSeconds = hours.totalMinutes * 60;
     if (totalWorkSeconds <= 0) return const SizedBox.shrink();
@@ -1076,6 +1082,211 @@ class _TimePicker extends StatelessWidget {
   }
 }
 
+// ── Smart Suggestion Field (search + dropdown + free entry) ─────────────────
+class _SuggestionField extends StatefulWidget {
+  final List<String> suggestions;
+  final String hintText;
+  final IconData prefixIcon;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+  final String initialValue;
+
+  const _SuggestionField({
+    super.key,
+    required this.suggestions,
+    required this.hintText,
+    required this.prefixIcon,
+    required this.enabled,
+    required this.onChanged,
+    this.initialValue = '',
+  });
+
+  @override
+  State<_SuggestionField> createState() => _SuggestionFieldState();
+}
+
+class _SuggestionFieldState extends State<_SuggestionField> {
+  late TextEditingController _ctrl;
+  late FocusNode _focus;
+  List<String> _filtered = [];
+  bool _open = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialValue);
+    _focus = FocusNode()..addListener(_onFocusChange);
+    _filtered = List.of(widget.suggestions);
+  }
+
+  @override
+  void didUpdateWidget(_SuggestionField old) {
+    super.didUpdateWidget(old);
+    if (old.initialValue != widget.initialValue &&
+        widget.initialValue.isEmpty) {
+      _ctrl.clear();
+      _filtered = List.of(widget.suggestions);
+    }
+    if (old.suggestions != widget.suggestions) {
+      _filter(_ctrl.text);
+    }
+  }
+
+  void _onFocusChange() {
+    if (_focus.hasFocus) {
+      _filter(_ctrl.text);
+      setState(() => _open = _filtered.isNotEmpty);
+    } else {
+      // Small delay so onTap on an option registers before we close
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) setState(() => _open = false);
+      });
+    }
+  }
+
+  void _filter(String q) {
+    final lower = q.trim().toLowerCase();
+    final list = lower.isEmpty
+        ? List.of(widget.suggestions)
+        : widget.suggestions
+            .where((s) => s.toLowerCase().contains(lower))
+            .toList();
+    setState(() {
+      _filtered = list;
+      if (_focus.hasFocus) _open = list.isNotEmpty;
+    });
+  }
+
+  void _select(String val) {
+    _ctrl.text = val;
+    _ctrl.selection = TextSelection.collapsed(offset: val.length);
+    widget.onChanged(val);
+    setState(() => _open = false);
+    _focus.unfocus();
+  }
+
+  void _clear() {
+    _ctrl.clear();
+    widget.onChanged('');
+    _filter('');
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_onFocusChange);
+    _focus.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ── Text field ──
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _ctrl,
+          builder: (_, value, __) {
+            final hasText = value.text.isNotEmpty;
+            return TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              enabled: widget.enabled,
+              onChanged: (val) {
+                _filter(val);
+                widget.onChanged(val);
+              },
+              style: const TextStyle(
+                  color: AppColors.textPrimary, fontSize: 15),
+              decoration: InputDecoration(
+                hintText: widget.hintText,
+                hintStyle:
+                    const TextStyle(color: AppColors.textSecondary),
+                prefixIcon: Icon(widget.prefixIcon,
+                    color: AppColors.textSecondary, size: 20),
+                suffixIcon: hasText
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded,
+                            color: AppColors.textSecondary, size: 18),
+                        onPressed: widget.enabled ? _clear : null,
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                      )
+                    : widget.suggestions.isNotEmpty
+                        ? const Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            color: AppColors.textSecondary,
+                            size: 18)
+                        : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 16),
+              ),
+            );
+          },
+        ),
+
+        // ── In-tree dropdown (scrollable, max ~2 items visible) ──
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: (_open && _filtered.isNotEmpty)
+              ? Container(
+                  // ~2 items visible → each item is ~42px, so max 96px
+                  constraints: const BoxConstraints(maxHeight: 96),
+                  decoration: const BoxDecoration(
+                    color: AppColors.surfaceBg,
+                    border: Border(
+                      top: BorderSide(
+                          color: AppColors.surfaceBg, width: 1),
+                    ),
+                  ),
+                  child: Scrollbar(
+                    thumbVisibility: true,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      shrinkWrap: true,
+                      itemCount: _filtered.length,
+                      separatorBuilder: (_, __) => const Divider(
+                          height: 1, color: AppColors.cardBg),
+                      itemBuilder: (_, i) {
+                        final opt = _filtered[i];
+                        return InkWell(
+                          onTap: () => _select(opt),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 11),
+                            child: Row(
+                              children: [
+                                Icon(widget.prefixIcon,
+                                    color: AppColors.mediumBlue,
+                                    size: 14),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    opt,
+                                    style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 13),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+}
 // ── Out-of-work-hours warning chip ────────────────────────────────────────────
 class _OutOfHoursChip extends ConsumerWidget {
   @override
