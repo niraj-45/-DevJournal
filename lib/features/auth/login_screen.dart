@@ -88,29 +88,12 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Spacer(flex: 2),
 
-              // Logo + Title
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: AppColors.brandBlue,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.terminal_rounded,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'DevJournal',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -1,
-                ),
+              // Logo
+              Image.asset(
+                'assets/images/logo_full_dark.png',
+                height: 48,
+                fit: BoxFit.contain,
+                alignment: Alignment.centerLeft,
               ),
               const SizedBox(height: 12),
               const Text(

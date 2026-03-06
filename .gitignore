@@ -47,5 +47,8 @@ app.*.map.json
 # Environment / secrets — copy env.example.dart → env.dart and fill in real values
 lib/core/config/env.dart
 
+# Source logo assets (not distributed with the repo)
+Logos/
+
 # Local VS Code launch overrides (may contain --dart-define secrets)
 .vscode/launch.json
