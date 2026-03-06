@@ -71,76 +71,113 @@ class _TimerScreenState extends ConsumerState<TimerScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
 
-                // Header
+                // ── Top bar: logo + actions ───────────────────────────────
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 8, 0),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      GestureDetector(
-                        onTap: () => _showWorkspaceSwitcher(context, ref),
-                        child: Row(
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('DevJournal',
-                                  style: TextStyle(
-                                    color: AppColors.mediumBlue,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                                Row(
-                                  children: [
-                                    Text(workspace['name'],
-                                      style: const TextStyle(
-                                        color: AppColors.textPrimary,
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Icon(Icons.unfold_more_rounded,
-                                        color: AppColors.textSecondary, size: 18),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                      Image.asset(
+                        'assets/images/logo_full_dark.png',
+                        height: 32,
+                        fit: BoxFit.contain,
                       ),
-                      Row(
-                        children: [
-                          IconButton(
-                            onPressed: () => context.push('/sessions'),
-                            icon: const Icon(Icons.list_rounded, color: AppColors.textSecondary),
-                          ),
-                          IconButton(
-                            onPressed: () => context.push('/standup'),
-                            icon: const Icon(Icons.auto_awesome_rounded, color: AppColors.textSecondary),
-                          ),
-                          IconButton(
-                            onPressed: () async {
-                              await ref
-                                  .read(selectedWorkspaceIdProvider.notifier)
-                                  .clear();
-                              ref.invalidate(allWorkspacesProvider);
-                              await Supabase.instance.client.auth.signOut();
-                              if (context.mounted) context.go('/login');
-                            },
-                            icon: const Icon(Icons.logout_rounded, color: AppColors.textSecondary),
-                          ),
-                        ],
-                      )
+                      const Spacer(),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => context.push('/sessions'),
+                        icon: const Icon(Icons.list_rounded,
+                            color: AppColors.textSecondary, size: 22),
+                        tooltip: 'Sessions',
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => context.push('/standup'),
+                        icon: const Icon(Icons.auto_awesome_rounded,
+                            color: AppColors.textSecondary, size: 22),
+                        tooltip: 'Standup',
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () async {
+                          await ref
+                              .read(selectedWorkspaceIdProvider.notifier)
+                              .clear();
+                          ref.invalidate(allWorkspacesProvider);
+                          await Supabase.instance.client.auth.signOut();
+                          if (context.mounted) context.go('/login');
+                        },
+                        icon: const Icon(Icons.logout_rounded,
+                            color: AppColors.textSecondary, size: 22),
+                        tooltip: 'Sign out',
+                      ),
                     ],
                   ),
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+
+                // ── Workspace selector row ────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: GestureDetector(
+                    onTap: () => _showWorkspaceSwitcher(context, ref),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceBg,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: AppColors.mediumBlue.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.workspaces_rounded,
+                                color: AppColors.mediumBlue, size: 18),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'WORKSPACE',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                                const SizedBox(height: 1),
+                                Text(
+                                  workspace['name'],
+                                  style: const TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.expand_more_rounded,
+                              color: AppColors.textSecondary, size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 14),
 
                 // Work hours bar
                 Padding(
